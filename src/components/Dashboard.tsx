@@ -10,6 +10,8 @@ import { analyzeTurn } from '../logic/combatAnalyzer'
 import { calculateKillLines } from '../logic/damageCalculator'
 import { analyzeCharacter } from '../logic/characterMechanics'
 import { adviseMap, adviseCardPick, adviseRest, adviseShop } from '../logic/advisorEngine'
+import { analyzeDeck } from '../logic/deckAnalyzer'
+import { DeckStats } from './DeckStats'
 
 function isCombatState(stateType: string): boolean {
   return ['monster', 'elite', 'boss'].includes(stateType)
@@ -31,14 +33,8 @@ export function Dashboard({ state }: { state: GameState }) {
       {state.state_type === 'combat_rewards' && <CombatRewardsView state={state} />}
       {state.state_type === 'menu' && <MenuView />}
 
-      {/* Pile counts in combat */}
-      {inCombat && (
-        <div className="flex gap-4 text-sm text-spire-muted justify-center">
-          <span>Draw: {state.draw_pile_count ?? 0}</span>
-          <span>Discard: {state.discard_pile_count ?? 0}</span>
-          <span>Exhaust: {state.exhaust_pile_count ?? 0}</span>
-        </div>
-      )}
+      {/* Deck Analysis (shown in combat when full deck data available) */}
+      {inCombat && <DeckStats analysis={analyzeDeck(state)} />}
 
       {/* Relics */}
       {state.relics && state.relics.length > 0 && (
