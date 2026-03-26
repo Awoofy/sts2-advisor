@@ -3,10 +3,12 @@ import { PlayerStatus } from './PlayerStatus'
 import { HandDisplay } from './HandDisplay'
 import { EnemyPanel } from './EnemyPanel'
 import { CombatAdvisor } from './CombatAdvisor'
+import { CharacterPanel } from './CharacterPanel'
 import { MapView } from './MapView'
 import { CardRewardView, RestSiteView, ShopView, EventView } from './RewardPicker'
 import { analyzeTurn } from '../logic/combatAnalyzer'
 import { calculateKillLines } from '../logic/damageCalculator'
+import { analyzeCharacter } from '../logic/characterMechanics'
 import { adviseMap, adviseCardPick, adviseRest, adviseShop } from '../logic/advisorEngine'
 
 function isCombatState(stateType: string): boolean {
@@ -99,10 +101,12 @@ function CombatView({ state }: { state: GameState }) {
     state.block ?? 0,
   )
   const killLines = calculateKillLines(enemies)
+  const charAnalysis = analyzeCharacter(state)
 
   return (
     <>
       <CombatAdvisor analysis={analysis} killLines={killLines} />
+      <CharacterPanel analysis={charAnalysis} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <HandDisplay hand={hand} energy={energy} />
         <EnemyPanel enemies={enemies} />
