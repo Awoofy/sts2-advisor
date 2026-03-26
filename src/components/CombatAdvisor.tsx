@@ -32,6 +32,24 @@ export function CombatAdvisor({
         {analysis.summary}
       </div>
 
+      {/* Damage Overview */}
+      <div className="flex gap-4 text-sm mb-3">
+        <div className="bg-spire-bg rounded px-3 py-1.5">
+          <span className="text-spire-muted">受ける: </span>
+          <span className="text-spire-red font-bold">{analysis.totalIncomingDamage}</span>
+          {analysis.incomingAfterBlock !== analysis.totalIncomingDamage && (
+            <span className="text-spire-muted">
+              {' '}
+              (Block後: <span className="text-spire-red">{analysis.incomingAfterBlock}</span>)
+            </span>
+          )}
+        </div>
+        <div className="bg-spire-bg rounded px-3 py-1.5">
+          <span className="text-spire-muted">Block可能: </span>
+          <span className="text-spire-blue font-bold">{analysis.availableBlock}</span>
+        </div>
+      </div>
+
       {/* Kill Lines */}
       {killLines.length > 0 && (
         <div className="mb-3">
@@ -45,11 +63,15 @@ export function CombatAdvisor({
                 className="flex justify-between text-sm bg-spire-bg rounded px-2 py-1"
               >
                 <span className="text-spire-text">{kl.enemyName}</span>
-                <span className="text-spire-red font-mono">
-                  {kl.block > 0
-                    ? `${kl.block} Block + ${kl.currentHp} HP = ${kl.damageNeeded}`
-                    : `${kl.damageNeeded} DMG`}
-                </span>
+                {kl.hasIntangible ? (
+                  <span className="text-spire-accent font-mono">Intangible</span>
+                ) : (
+                  <span className="text-spire-red font-mono">
+                    {kl.block > 0
+                      ? `${kl.block} Block + ${kl.currentHp} HP = ${kl.damageNeeded}`
+                      : `${kl.damageNeeded} DMG`}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -78,6 +100,14 @@ export function CombatAdvisor({
                   {t.isBuffing && <span className="text-spire-gold">Buff</span>}
                   {t.isDebuffing && (
                     <span className="text-spire-accent">Debuff</span>
+                  )}
+                  {t.isSummoning && (
+                    <span className="text-spire-gold">Summon</span>
+                  )}
+                  {t.poisonLethalTurns != null && (
+                    <span className="text-spire-green">
+                      毒死{t.poisonLethalTurns}T
+                    </span>
                   )}
                   <span className={threatColors[t.threatLevel]}>
                     [{t.threatLevel.toUpperCase()}]
