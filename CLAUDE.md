@@ -228,3 +228,12 @@ Step 7: hp_loss = max(0, final_damage - enemy.block)
 14. **アーキタイプは1つに絞る** — 特に Regent は Stars OR Forge
 15. **Act 1 ではポーション積極使用** — HP 温存が最優先
 16. **アップグレードは回復より価値が高いことが多い** — ボス戦の勝敗を分ける
+
+### 詳細攻略ドキュメント
+
+`docs/strategy-guide.md` に以下を収録:
+- トッププレイヤー一覧（EN: Baalorlord, Jorbs, FrostPrime / JP: GAH-LINK, シソー）
+- カード評価 "Jobs" フレームワーク（Jorbs）
+- キャラ別アーキタイプ Tier 表（全5キャラ）
+- Act ごとの戦略意識
+- レリック評価基準
