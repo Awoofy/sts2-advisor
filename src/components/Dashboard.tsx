@@ -101,7 +101,7 @@ function CombatView({ state }: { state: GameState }) {
 
   return (
     <>
-      <CombatAdvisor analysis={analysis} killLines={killLines} />
+      <CombatAdvisor analysis={analysis} killLines={killLines} energy={energy} />
       <CharacterPanel analysis={charAnalysis} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <HandDisplay hand={hand} energy={energy} />

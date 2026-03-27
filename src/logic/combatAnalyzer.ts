@@ -142,16 +142,27 @@ function generateRecommendations(
   killableEnemies: { enemyId: string; enemyName: string; cardsNeeded: string[]; energyCost: number }[],
   shouldFocusBlock: boolean,
 ): PlayRecommendation[] {
-  const recs: PlayRecommendation[] = []
+  // Collect candidates with priority, then select respecting energy budget
+  interface Candidate {
+    cardIndex: number
+    cardName: string
+    cost: number
+    reason: string
+    priority: number
+    target?: string
+  }
+
+  const candidates: Candidate[] = []
   const totalIncoming = threats.reduce((sum, t) => sum + t.totalIncomingDamage, 0)
   const anyAttacking = threats.some((t) => t.isAttacking)
 
   // Zero-cost cards first
   for (const card of hand) {
     if (card.cost === 0 && card.can_play) {
-      recs.push({
+      candidates.push({
         cardIndex: card.index,
         cardName: card.name,
+        cost: 0,
         reason: '0コスト: 先に使う',
         priority: 100,
       })
@@ -160,7 +171,6 @@ function generateRecommendations(
 
   // If we can kill an enemy, prioritize that
   if (killableEnemies.length > 0) {
-    // Prefer killing enemies that are attacking
     const sorted = [...killableEnemies].sort((a, b) => {
       const aThreats = threats.find((t) => t.enemyId === a.enemyId)
       const bThreats = threats.find((t) => t.enemyId === b.enemyId)
@@ -170,10 +180,11 @@ function generateRecommendations(
     const target = sorted[0]
     for (const cardName of target.cardsNeeded) {
       const card = hand.find((c) => c.name === cardName && c.can_play)
-      if (card && !recs.some((r) => r.cardIndex === card.index)) {
-        recs.push({
+      if (card && !candidates.some((r) => r.cardIndex === card.index)) {
+        candidates.push({
           cardIndex: card.index,
           cardName: card.name,
+          cost: card.cost,
           reason: `${target.enemyName} を倒せる!`,
           priority: 95,
           target: target.enemyId,
@@ -184,12 +195,12 @@ function generateRecommendations(
 
   // Powers (play early for value)
   for (const card of hand) {
-    if (card.type === 'Power' && card.can_play && card.cost <= energy) {
-      const alreadyRecommended = recs.some((r) => r.cardIndex === card.index)
-      if (!alreadyRecommended) {
-        recs.push({
+    if (card.type === 'Power' && card.can_play && card.cost > 0) {
+      if (!candidates.some((r) => r.cardIndex === card.index)) {
+        candidates.push({
           cardIndex: card.index,
           cardName: card.name,
+          cost: card.cost,
           reason: 'パワー: 早めに展開',
           priority: 70,
         })
@@ -200,20 +211,18 @@ function generateRecommendations(
   // Block when needed
   if (shouldFocusBlock || (anyAttacking && totalIncoming > 15)) {
     for (const card of hand) {
-      if (card.can_play && card.cost <= energy) {
+      if (card.can_play && card.cost > 0) {
         const blockGained = estimateCardBlock(card, playerStatus)
-        if (blockGained > 0) {
-          const alreadyRecommended = recs.some((r) => r.cardIndex === card.index)
-          if (!alreadyRecommended) {
-            recs.push({
-              cardIndex: card.index,
-              cardName: card.name,
-              reason: shouldFocusBlock
-                ? `生存危機! ${blockGained} Block`
-                : `${totalIncoming} DMG対策: ${blockGained} Block`,
-              priority: shouldFocusBlock ? 90 : 75,
-            })
-          }
+        if (blockGained > 0 && !candidates.some((r) => r.cardIndex === card.index)) {
+          candidates.push({
+            cardIndex: card.index,
+            cardName: card.name,
+            cost: card.cost,
+            reason: shouldFocusBlock
+              ? `生存危機! ${blockGained} Block`
+              : `${totalIncoming} DMG対策: ${blockGained} Block`,
+            priority: shouldFocusBlock ? 90 : 75,
+          })
         }
       }
     }
@@ -221,21 +230,19 @@ function generateRecommendations(
 
   // Remaining attacks
   const primaryTarget = [...enemies].sort((a, b) => {
-    // Prefer enemies that are buffing (stop scaling)
     const aBuffing = threats.find((t) => t.enemyId === a.combat_id)?.isBuffing ? 1 : 0
     const bBuffing = threats.find((t) => t.enemyId === b.combat_id)?.isBuffing ? 1 : 0
     if (aBuffing !== bBuffing) return bBuffing - aBuffing
-    // Then prefer lower effective HP
     return (a.hp + a.block) - (b.hp + b.block)
   })[0]
 
   for (const card of hand) {
-    if (card.type === 'Attack' && card.can_play && card.cost <= energy) {
-      const alreadyRecommended = recs.some((r) => r.cardIndex === card.index)
-      if (!alreadyRecommended) {
-        recs.push({
+    if (card.type === 'Attack' && card.can_play && card.cost > 0) {
+      if (!candidates.some((r) => r.cardIndex === card.index)) {
+        candidates.push({
           cardIndex: card.index,
           cardName: card.name,
+          cost: card.cost,
           reason: '攻撃: ダメージを与える',
           priority: 50,
           target: primaryTarget?.combat_id,
@@ -244,15 +251,42 @@ function generateRecommendations(
     }
   }
 
-  // Deduplicate and sort
-  const seen = new Set<number>()
-  return recs
-    .filter((r) => {
-      if (seen.has(r.cardIndex)) return false
-      seen.add(r.cardIndex)
-      return true
-    })
-    .sort((a, b) => b.priority - a.priority)
+  // Skills that don't block (debuffs, draw, etc.)
+  for (const card of hand) {
+    if (card.type === 'Skill' && card.can_play && card.cost > 0) {
+      if (!candidates.some((r) => r.cardIndex === card.index)) {
+        candidates.push({
+          cardIndex: card.index,
+          cardName: card.name,
+          cost: card.cost,
+          reason: 'スキル',
+          priority: 40,
+        })
+      }
+    }
+  }
+
+  // Select cards respecting energy budget
+  candidates.sort((a, b) => b.priority - a.priority)
+
+  const selected: PlayRecommendation[] = []
+  let energyRemaining = energy
+
+  for (const c of candidates) {
+    if (c.cost <= energyRemaining) {
+      selected.push({
+        cardIndex: c.cardIndex,
+        cardName: c.cardName,
+        reason: c.reason,
+        priority: c.priority,
+        target: c.target,
+      })
+      energyRemaining -= c.cost
+    }
+    if (energyRemaining <= 0) break
+  }
+
+  return selected
 }
 
 export function analyzeTurn(

@@ -11,9 +11,11 @@ const threatColors: Record<string, string> = {
 export function CombatAdvisor({
   analysis,
   killLines,
+  energy,
 }: {
   analysis: TurnAnalysis
   killLines: KillLine[]
+  energy: number
 }) {
   return (
     <div className="bg-spire-panel border border-spire-border rounded-lg p-4">
@@ -124,6 +126,9 @@ export function CombatAdvisor({
         <div>
           <h3 className="text-xs font-bold text-spire-muted uppercase mb-1">
             Play Order
+            <span className="text-spire-gold ml-2 normal-case">
+              ({analysis.recommendations.length}枚 / {energy} Energy)
+            </span>
           </h3>
           <div className="space-y-1">
             {analysis.recommendations.map((rec, i) => (
