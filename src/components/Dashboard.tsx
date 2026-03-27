@@ -95,6 +95,9 @@ function CombatView({ state }: { state: GameState }) {
     energy,
     state.hp ?? 0,
     state.block ?? 0,
+    state.potions ?? [],
+    state.state_type,
+    state.max_hp ?? state.hp ?? 0,
   )
   const killLines = calculateKillLines(enemies)
   const charAnalysis = analyzeCharacter(state)

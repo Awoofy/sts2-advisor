@@ -1,4 +1,4 @@
-import type { Card, Enemy, StatusEffect } from '../types/gameState'
+import type { Card, Enemy, StatusEffect, Potion } from '../types/gameState'
 import {
   estimateCardTotalDamage,
   estimateCardBlock,
@@ -29,6 +29,21 @@ export interface PlayRecommendation {
   target?: string
 }
 
+export interface PotionAdvice {
+  slot: number
+  name: string
+  reason: string
+  priority: number
+  target?: string
+}
+
+export interface WeakTip {
+  enemyName: string
+  currentDamage: number
+  withWeakDamage: number
+  saved: number
+}
+
 export interface TurnAnalysis {
   threats: ThreatAssessment[]
   recommendations: PlayRecommendation[]
@@ -38,6 +53,8 @@ export interface TurnAnalysis {
   shouldFocusBlock: boolean
   availableBlock: number
   summary: string
+  potionAdvice: PotionAdvice[]
+  weakTips: WeakTip[]
 }
 
 function assessThreat(enemy: Enemy, playerStatus: StatusEffect[]): ThreatAssessment {
@@ -336,6 +353,134 @@ function generateRecommendations(
   return selected
 }
 
+// -- Weak tip calculation --
+
+function calculateWeakTips(enemies: Enemy[], playerStatus: StatusEffect[]): WeakTip[] {
+  const tips: WeakTip[] = []
+
+  for (const enemy of enemies) {
+    if (hasStatus(enemy.status, 'weak')) continue // already weak
+
+    let currentDamage = 0
+    let withWeakDamage = 0
+
+    for (const intent of enemy.intents) {
+      if (intent.damage != null) {
+        const hits = intent.hits ?? 1
+        let perHit = intent.damage
+        if (hasStatus(playerStatus, 'vulnerable')) {
+          perHit = Math.floor(perHit * 1.5)
+        }
+        currentDamage += perHit * hits
+
+        let weakPerHit = Math.floor(intent.damage * 0.75)
+        if (hasStatus(playerStatus, 'vulnerable')) {
+          weakPerHit = Math.floor(weakPerHit * 1.5)
+        }
+        withWeakDamage += weakPerHit * hits
+      }
+    }
+
+    if (currentDamage > 0) {
+      const saved = currentDamage - withWeakDamage
+      if (saved > 0) {
+        tips.push({
+          enemyName: enemy.name,
+          currentDamage,
+          withWeakDamage,
+          saved,
+        })
+      }
+    }
+  }
+
+  return tips.sort((a, b) => b.saved - a.saved)
+}
+
+// -- Potion advice --
+
+function advisePotions(
+  potions: Potion[],
+  _enemies: Enemy[],
+  threats: ThreatAssessment[],
+  stateType: string,
+  playerHp: number,
+  playerMaxHp: number,
+): PotionAdvice[] {
+  const advice: PotionAdvice[] = []
+  const isEliteOrBoss = stateType === 'elite' || stateType === 'boss'
+  const totalIncoming = threats.reduce((sum, t) => sum + t.totalIncomingDamage, 0)
+  const hpRatio = playerMaxHp > 0 ? playerHp / playerMaxHp : 1
+
+  for (const potion of potions) {
+    if (!potion.can_use_in_combat) continue
+
+    const desc = potion.description.toLowerCase()
+    let reason = ''
+    let priority = 0
+
+    // Damage potions: use on elite/boss or when can help kill
+    if (desc.includes('ダメージ') || desc.includes('damage')) {
+      if (isEliteOrBoss) {
+        reason = 'ボス/エリート戦: ダメージポーション推奨'
+        priority = 70
+      }
+    }
+
+    // Block potions: use when heavy damage incoming
+    if (desc.includes('ブロック') || desc.includes('block')) {
+      if (totalIncoming >= 20) {
+        reason = `大ダメージ (${totalIncoming}) 対策に使用推奨`
+        priority = 75
+      }
+    }
+
+    // Weak/Vulnerable potions: always good on elite/boss
+    if (desc.includes('弱体') || desc.includes('weak') ||
+        desc.includes('脆弱') || desc.includes('vulnerable')) {
+      if (isEliteOrBoss) {
+        reason = 'ボス/エリート: デバフポーション推奨'
+        priority = 65
+      }
+    }
+
+    // Strength/Dexterity potions: use on elite/boss
+    if (desc.includes('筋力') || desc.includes('strength') ||
+        desc.includes('敏捷') || desc.includes('dexterity')) {
+      if (isEliteOrBoss) {
+        reason = 'ボス/エリート: バフポーション推奨'
+        priority = 60
+      }
+    }
+
+    // HP potions: use when low
+    if (desc.includes('hp') || desc.includes('回復') || desc.includes('heal')) {
+      if (hpRatio < 0.4) {
+        reason = `HP ${Math.round(hpRatio * 100)}%: 回復ポーション推奨`
+        priority = 80
+      }
+    }
+
+    if (reason && priority > 0) {
+      const highestThreat = [...threats].sort(
+        (a, b) => b.totalIncomingDamage - a.totalIncomingDamage,
+      )[0]
+
+      advice.push({
+        slot: potion.slot,
+        name: potion.name,
+        reason,
+        priority,
+        target: potion.target_type !== 'none' && potion.target_type !== 'Self'
+          ? highestThreat?.enemyName
+          : undefined,
+      })
+    }
+  }
+
+  return advice.sort((a, b) => b.priority - a.priority)
+}
+
 export function analyzeTurn(
   hand: Card[],
   enemies: Enemy[],
@@ -343,6 +488,9 @@ export function analyzeTurn(
   energy: number,
   playerHp: number,
   playerBlock: number,
+  potions: Potion[] = [],
+  stateType: string = 'monster',
+  playerMaxHp: number = playerHp,
 ): TurnAnalysis {
   const threats = enemies.map((e) => assessThreat(e, playerStatus))
   const incoming = calculateIncomingDamage(enemies, playerBlock, playerStatus)
@@ -357,9 +505,12 @@ export function analyzeTurn(
     availableBlock += estimateCardBlock(card, playerStatus)
   }
 
+  // Smarter block focus: if we can't kill anyone AND incoming is significant
+  const canKillAnyone = killableEnemies.length > 0
   const shouldFocusBlock =
+    !canKillAnyone &&
     incoming.afterBlock > 0 &&
-    (playerHp - incoming.afterBlock) < playerHp * 0.3
+    ((playerHp - incoming.afterBlock) < playerHp * 0.3 || incoming.totalDamage >= 20)
 
   const recommendations = generateRecommendations(
     hand,
@@ -370,6 +521,12 @@ export function analyzeTurn(
     killableEnemies,
     shouldFocusBlock,
   )
+
+  // Weak tips
+  const weakTips = calculateWeakTips(enemies, playerStatus)
+
+  // Potion advice
+  const potionAdvice = advisePotions(potions, enemies, threats, stateType, playerHp, playerMaxHp)
 
   let summary: string
   if (killableEnemies.length > 0) {
@@ -383,13 +540,18 @@ export function analyzeTurn(
     summary = `受ける予定ダメージ: ${incoming.totalDamage}。バランスよくプレイ。`
   }
 
-  // Add poison info to summary
+  // Add poison info
   const poisonKills = threats.filter((t) => t.poisonLethalTurns != null)
   if (poisonKills.length > 0) {
     const poisonInfo = poisonKills
-      .map((t) => `${t.enemyName}: 毒で${t.poisonLethalTurns}ターン後に死亡`)
+      .map((t) => `${t.enemyName}: 毒で${t.poisonLethalTurns}T後に死亡`)
       .join(', ')
     summary += ` [${poisonInfo}]`
+  }
+
+  // Add weak tip to summary if significant
+  if (weakTips.length > 0 && weakTips[0].saved >= 5) {
+    summary += ` [${weakTips[0].enemyName} に弱体 → ${weakTips[0].saved}DMG軽減]`
   }
 
   return {
@@ -401,5 +563,7 @@ export function analyzeTurn(
     shouldFocusBlock,
     availableBlock,
     summary,
+    potionAdvice,
+    weakTips,
   }
 }

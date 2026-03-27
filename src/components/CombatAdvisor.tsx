@@ -153,6 +153,53 @@ export function CombatAdvisor({
           </div>
         </div>
       )}
+
+      {/* Potion Advice */}
+      {analysis.potionAdvice.length > 0 && (
+        <div className="mt-3">
+          <h3 className="text-xs font-bold text-spire-muted uppercase mb-1">
+            Potion
+          </h3>
+          <div className="space-y-1">
+            {analysis.potionAdvice.map((p) => (
+              <div
+                key={p.slot}
+                className="flex items-center justify-between text-sm bg-spire-accent/10 rounded px-2 py-1"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-spire-accent font-bold">{p.name}</span>
+                  {p.target && (
+                    <span className="text-spire-gold text-xs">→ {p.target}</span>
+                  )}
+                </div>
+                <span className="text-spire-muted text-xs">{p.reason}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Weak Tips */}
+      {analysis.weakTips.length > 0 && analysis.weakTips[0].saved >= 3 && (
+        <div className="mt-3">
+          <h3 className="text-xs font-bold text-spire-muted uppercase mb-1">
+            Weak Tip
+          </h3>
+          <div className="space-y-1">
+            {analysis.weakTips
+              .filter((t) => t.saved >= 3)
+              .map((t) => (
+                <div
+                  key={t.enemyName}
+                  className="text-xs bg-spire-blue/10 text-spire-blue rounded px-2 py-1"
+                >
+                  {t.enemyName} に弱体付与 → {t.currentDamage}DMG が {t.withWeakDamage}DMG に
+                  <span className="font-bold ml-1">({t.saved}DMG 軽減)</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
