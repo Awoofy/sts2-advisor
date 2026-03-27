@@ -43,22 +43,42 @@ export function hasStatus(status: StatusEffect[], id: string): boolean {
   return getStatusAmount(status, id) > 0
 }
 
-// -- Damage parsing --
+// -- Damage parsing (supports English and Japanese) --
 
 function parseDamageFromDescription(description: string): number | null {
-  const match = description.match(/Deal (\d+) damage/i)
-  return match ? parseInt(match[1], 10) : null
+  // English: "Deal 6 damage"
+  const enMatch = description.match(/Deal (\d+) damage/i)
+  if (enMatch) return parseInt(enMatch[1], 10)
+
+  // Japanese: "6ダメージを与える"
+  const jpMatch = description.match(/(\d+)ダメージ/)
+  if (jpMatch) return parseInt(jpMatch[1], 10)
+
+  return null
 }
 
 function parseHitsFromDescription(description: string): number {
-  // "Deal 5 damage 3 times" or "Deal 2 damage X times"
-  const match = description.match(/(\d+)\s*times/i)
-  return match ? parseInt(match[1], 10) : 1
+  // English: "Deal 5 damage 3 times"
+  const enMatch = description.match(/(\d+)\s*times/i)
+  if (enMatch) return parseInt(enMatch[1], 10)
+
+  // Japanese: "3回行う" or "3回"
+  const jpMatch = description.match(/(\d+)回/)
+  if (jpMatch) return parseInt(jpMatch[1], 10)
+
+  return 1
 }
 
 function parseBlockFromDescription(description: string): number | null {
-  const match = description.match(/Gain (\d+) Block/i)
-  return match ? parseInt(match[1], 10) : null
+  // English: "Gain 5 Block"
+  const enMatch = description.match(/Gain (\d+) Block/i)
+  if (enMatch) return parseInt(enMatch[1], 10)
+
+  // Japanese: "5ブロックを得る"
+  const jpMatch = description.match(/(\d+)ブロック/)
+  if (jpMatch) return parseInt(jpMatch[1], 10)
+
+  return null
 }
 
 // -- Core damage calculation (per hit) --
