@@ -5,6 +5,8 @@ import {
   calculateIncomingDamage,
   calculatePoisonLethalTurns,
   hasStatus,
+  analyzeCardEffects,
+  describeCardEffects,
 } from './damageCalculator'
 
 export interface ThreatAssessment {
@@ -183,14 +185,36 @@ function generateRecommendations(
   for (const card of hand) {
     if (card.cost === 0 && card.can_play) {
       const target = pickTarget(card)
+      const fx = describeCardEffects(card)
       candidates.push({
         cardIndex: card.index,
         cardName: card.name,
         cost: 0,
-        reason: '0コスト: 先に使う',
+        reason: `0コスト${fx ? ': ' + fx : ''}`,
         priority: 100,
         target: targetName(card, target),
       })
+    }
+  }
+
+  // Debuff cards (Vulnerable/Weak) before attacks — increases subsequent damage
+  for (const card of hand) {
+    if (card.cost > 0 && card.can_play && !candidates.some((c) => c.cardIndex === card.index)) {
+      const fx = analyzeCardEffects(card)
+      if (fx.appliesVulnerable > 0 || fx.appliesWeak > 0) {
+        const target = pickTarget(card)
+        const parts: string[] = []
+        if (fx.appliesVulnerable > 0) parts.push(`脆弱${fx.appliesVulnerable} → 以降+50%DMG`)
+        if (fx.appliesWeak > 0) parts.push(`弱体${fx.appliesWeak} → 被DMG-25%`)
+        candidates.push({
+          cardIndex: card.index,
+          cardName: card.name,
+          cost: card.cost,
+          reason: parts.join(', '),
+          priority: 85,
+          target: targetName(card, target),
+        })
+      }
     }
   }
 
@@ -258,11 +282,12 @@ function generateRecommendations(
     if (card.type === 'Attack' && card.can_play && card.cost > 0) {
       if (!candidates.some((r) => r.cardIndex === card.index)) {
         const t = pickTarget(card)
+        const fx = describeCardEffects(card)
         candidates.push({
           cardIndex: card.index,
           cardName: card.name,
           cost: card.cost,
-          reason: '攻撃',
+          reason: fx || '攻撃',
           priority: 50,
           target: targetName(card, t),
         })
@@ -275,11 +300,12 @@ function generateRecommendations(
     if (card.type === 'Skill' && card.can_play && card.cost > 0) {
       if (!candidates.some((r) => r.cardIndex === card.index)) {
         const t = pickTarget(card)
+        const fx = describeCardEffects(card)
         candidates.push({
           cardIndex: card.index,
           cardName: card.name,
           cost: card.cost,
-          reason: 'スキル',
+          reason: fx || 'スキル',
           priority: 40,
           target: targetName(card, t),
         })

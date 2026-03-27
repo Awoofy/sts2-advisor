@@ -275,3 +275,69 @@ export function calculatePoisonLethalTurns(enemy: Enemy): number | null {
 
   return hp <= 0 ? turns : null
 }
+
+// -- Card effect analysis (for richer recommendations) --
+
+export interface CardEffects {
+  damage: number | null
+  block: number | null
+  appliesVulnerable: number
+  appliesWeak: number
+  appliesPoison: number
+  appliesStrength: number
+  drawCards: number
+  isAoe: boolean
+  exhausts: boolean
+  hasScaling: boolean
+}
+
+export function analyzeCardEffects(card: Card): CardEffects {
+  const desc = card.description.toLowerCase()
+
+  const dmgMatch = desc.match(/(\d+)(?:ダメージ|damage)/i)
+  const blkMatch = desc.match(/(\d+)(?:ブロック|block)/i)
+
+  // Debuff application
+  const vulnMatch = desc.match(/(?:脆弱|vulnerable)\s*(\d+)/i) ?? desc.match(/(\d+)\s*(?:脆弱|vulnerable)/i)
+  const weakMatch = desc.match(/(?:弱体|weak)\s*(\d+)/i) ?? desc.match(/(\d+)\s*(?:弱体|weak)/i)
+  const poisonMatch = desc.match(/(?:毒|poison)\s*(\d+)/i) ?? desc.match(/(\d+)\s*(?:毒|poison)/i)
+  const strMatch = desc.match(/(?:筋力|strength)\s*(\d+)/i) ?? desc.match(/(\d+)\s*(?:筋力|strength)/i)
+
+  const drawMatch = desc.match(/(?:カードを|draw\s+)(\d+)/i) ?? desc.match(/(\d+)(?:枚.*?引く|cards?)/i)
+
+  const isAoe = card.target_type === 'all' || desc.includes('all') || desc.includes('全体') || desc.includes('全ての')
+  const exhausts = card.keywords.some((k) => k.toLowerCase() === 'exhaust' || k === '排気' || k === '廃棄')
+  const hasScaling = (strMatch != null && parseInt(strMatch[1], 10) > 0) ||
+    desc.includes('demon form') || desc.includes('デーモンフォーム') ||
+    desc.includes('noxious fumes') || card.type === 'Power'
+
+  return {
+    damage: dmgMatch ? parseInt(dmgMatch[1], 10) : null,
+    block: blkMatch ? parseInt(blkMatch[1], 10) : null,
+    appliesVulnerable: vulnMatch ? parseInt(vulnMatch[1], 10) : 0,
+    appliesWeak: weakMatch ? parseInt(weakMatch[1], 10) : 0,
+    appliesPoison: poisonMatch ? parseInt(poisonMatch[1], 10) : 0,
+    appliesStrength: strMatch ? parseInt(strMatch[1], 10) : 0,
+    drawCards: drawMatch ? parseInt(drawMatch[1], 10) : 0,
+    isAoe,
+    exhausts,
+    hasScaling,
+  }
+}
+
+export function describeCardEffects(card: Card): string {
+  const fx = analyzeCardEffects(card)
+  const parts: string[] = []
+
+  if (fx.damage != null) parts.push(`${fx.damage}DMG`)
+  if (fx.block != null) parts.push(`${fx.block}Block`)
+  if (fx.appliesVulnerable > 0) parts.push(`脆弱${fx.appliesVulnerable}`)
+  if (fx.appliesWeak > 0) parts.push(`弱体${fx.appliesWeak}`)
+  if (fx.appliesPoison > 0) parts.push(`毒${fx.appliesPoison}`)
+  if (fx.appliesStrength > 0) parts.push(`筋力+${fx.appliesStrength}`)
+  if (fx.drawCards > 0) parts.push(`+${fx.drawCards}ドロー`)
+  if (fx.isAoe) parts.push('全体')
+  if (fx.hasScaling) parts.push('Scaling')
+
+  return parts.join(', ')
+}
