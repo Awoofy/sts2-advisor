@@ -11,7 +11,9 @@ import { calculateKillLines } from '../logic/damageCalculator'
 import { analyzeCharacter } from '../logic/characterMechanics'
 import { adviseMap, adviseCardPick, adviseRest, adviseShop } from '../logic/advisorEngine'
 import { analyzeDeck, adviseCardPickWithContext } from '../logic/deckAnalyzer'
+import { analyzeRun } from '../logic/runCoach'
 import { DeckStats } from './DeckStats'
+import { RunCoachPanel } from './RunCoachPanel'
 
 function isCombatState(stateType: string): boolean {
   return ['monster', 'elite', 'boss'].includes(stateType)
@@ -35,6 +37,11 @@ export function Dashboard({ state }: { state: GameState }) {
 
       {/* Deck Analysis (shown in combat when full deck data available) */}
       {inCombat && <DeckStats analysis={analyzeDeck(state)} />}
+
+      {/* Run Coach (shown on map and non-menu screens) */}
+      {state.state_type !== 'menu' && state.act != null && (
+        <RunCoachPanel advice={analyzeRun(state)} />
+      )}
 
       {/* Relics */}
       {state.relics && state.relics.length > 0 && (
