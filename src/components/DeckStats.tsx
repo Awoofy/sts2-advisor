@@ -62,6 +62,27 @@ export function DeckStats({ analysis }: { analysis: DeckAnalysis }) {
         </div>
       )}
 
+      {/* Roles (Jobs) */}
+      {analysis.roles.length > 0 && (
+        <div className="mb-3">
+          <h3 className="text-xs font-bold text-spire-muted uppercase mb-1">Roles</h3>
+          <div className="flex flex-wrap gap-1.5">
+            {analysis.roles.map((r) => (
+              <span
+                key={r.role}
+                className={`text-xs px-2 py-0.5 rounded ${
+                  r.sufficient
+                    ? 'bg-spire-green/10 text-spire-green'
+                    : 'bg-spire-red/10 text-spire-red'
+                }`}
+              >
+                {r.label}: {r.count} {r.sufficient ? '' : '(不足)'}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Warnings */}
       {analysis.warnings.length > 0 && (
         <div className="space-y-1">

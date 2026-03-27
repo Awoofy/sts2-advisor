@@ -1,4 +1,5 @@
-import type { Card, GameState } from '../types/gameState'
+import type { Card, GameState, CardReward } from '../types/gameState'
+import { analyzeCardEffects } from './damageCalculator'
 
 // -- Archetype definitions --
 
@@ -31,6 +32,15 @@ export interface ArchetypeScore {
   description: string
 }
 
+export type DeckRole = 'frontload' | 'scaling' | 'block' | 'draw' | 'aoe'
+
+export interface RoleAnalysis {
+  role: DeckRole
+  label: string
+  count: number
+  sufficient: boolean
+}
+
 export interface DeckAnalysis {
   totalCards: number
   attackCount: number
@@ -41,6 +51,8 @@ export interface DeckAnalysis {
   primaryArchetype: ArchetypeScore | null
   deckQuality: 'lean' | 'balanced' | 'bloated'
   warnings: string[]
+  roles: RoleAnalysis[]
+  missingRoles: DeckRole[]
 }
 
 // Keyword/description patterns that indicate archetypes
@@ -220,6 +232,52 @@ export function analyzeDeck(state: GameState): DeckAnalysis {
     warnings.push('アーキタイプが分散しています。1つに絞るとデッキが回りやすくなります')
   }
 
+  // Role analysis (Jobs framework)
+  const roles: RoleAnalysis[] = []
+  let frontloadCount = 0
+  let scalingCount = 0
+  let blockCount = 0
+  let drawCount = 0
+  let aoeCount = 0
+
+  for (const card of allCards) {
+    const fx = analyzeCardEffects(card)
+    if (card.type === 'Attack' && fx.damage != null && !fx.hasScaling) frontloadCount++
+    if (fx.hasScaling || card.type === 'Power') scalingCount++
+    if (fx.block != null) blockCount++
+    if (fx.drawCards > 0) drawCount++
+    if (fx.isAoe) aoeCount++
+  }
+
+  const thresholds: Record<DeckRole, { label: string; min: number }> = {
+    frontload: { label: 'Frontload (即ダメージ)', min: 3 },
+    scaling: { label: 'Scaling (成長)', min: 1 },
+    block: { label: 'Block (防御)', min: 3 },
+    draw: { label: 'Draw (ドロー)', min: 1 },
+    aoe: { label: 'AoE (全体攻撃)', min: 1 },
+  }
+
+  const counts: Record<DeckRole, number> = {
+    frontload: frontloadCount,
+    scaling: scalingCount,
+    block: blockCount,
+    draw: drawCount,
+    aoe: aoeCount,
+  }
+
+  const missingRoles: DeckRole[] = []
+  for (const [role, config] of Object.entries(thresholds)) {
+    const r = role as DeckRole
+    const count = counts[r]
+    const sufficient = count >= config.min
+    roles.push({ role: r, label: config.label, count, sufficient })
+    if (!sufficient) missingRoles.push(r)
+  }
+
+  if (missingRoles.includes('scaling') && totalCards > 15) {
+    warnings.push('Scaling カードが不足。パワーやバフカードを検討')
+  }
+
   return {
     totalCards,
     attackCount,
@@ -230,6 +288,8 @@ export function analyzeDeck(state: GameState): DeckAnalysis {
     primaryArchetype,
     deckQuality,
     warnings,
+    roles,
+    missingRoles,
   }
 }
 
@@ -242,6 +302,51 @@ export interface ContextualCardAdvice {
   reasoning: string
 }
 
+function cardRewardToCard(reward: CardReward): Card {
+  return {
+    index: reward.index,
+    id: reward.id,
+    name: reward.name,
+    type: reward.type,
+    cost: reward.cost,
+    description: reward.description,
+    target_type: 'single',
+    can_play: true,
+    is_upgraded: reward.is_upgraded,
+    rarity: reward.rarity,
+    keywords: [],
+  }
+}
+
+function evaluateRoleFit(card: Card, missingRoles: DeckRole[]): { score: number; roles: string[] } {
+  const fx = analyzeCardEffects(card)
+  let score = 0
+  const filledRoles: string[] = []
+
+  if (missingRoles.includes('frontload') && card.type === 'Attack' && fx.damage != null && !fx.hasScaling) {
+    score += 3
+    filledRoles.push('Frontload')
+  }
+  if (missingRoles.includes('scaling') && (fx.hasScaling || card.type === 'Power')) {
+    score += 4 // Scaling is high value
+    filledRoles.push('Scaling')
+  }
+  if (missingRoles.includes('block') && fx.block != null) {
+    score += 2
+    filledRoles.push('Block')
+  }
+  if (missingRoles.includes('draw') && fx.drawCards > 0) {
+    score += 3
+    filledRoles.push('Draw')
+  }
+  if (missingRoles.includes('aoe') && fx.isAoe) {
+    score += 2
+    filledRoles.push('AoE')
+  }
+
+  return { score, roles: filledRoles }
+}
+
 export function adviseCardPickWithContext(
   state: GameState,
   deckAnalysis: DeckAnalysis,
@@ -251,52 +356,60 @@ export function adviseCardPickWithContext(
 
   const primary = deckAnalysis.primaryArchetype
 
-  return rewards.map((card) => {
-    let archetypeFit = 0
-    let reasoning = ''
-
-    if (primary) {
-      // Check if this card fits the primary archetype
-      const fakeCard: Card = {
-        index: card.index,
-        id: card.id,
-        name: card.name,
-        type: card.type,
-        cost: card.cost,
-        description: card.description,
-        target_type: 'single',
-        can_play: true,
-        is_upgraded: card.is_upgraded,
-        rarity: card.rarity,
-        keywords: [],
-      }
-      archetypeFit = scoreCardForArchetype(fakeCard, primary.archetype)
-
-      if (archetypeFit > 0) {
-        reasoning = `${primary.label} シナジー (適合度: ${archetypeFit})`
-      } else {
-        reasoning = `${primary.label} と無関係`
-      }
-    }
+  const evaluated = rewards.map((reward) => {
+    const card = cardRewardToCard(reward)
+    let totalScore = 0
+    const reasons: string[] = []
 
     // Rarity bonus
-    if (card.rarity === 'Rare') {
-      reasoning = 'レア! ' + reasoning
+    if (reward.rarity === 'Rare') {
+      totalScore += 3
+      reasons.push('レア')
+    } else if (reward.rarity === 'Uncommon') {
+      totalScore += 1
     }
-    if (card.is_upgraded) {
-      reasoning = 'UG済み! ' + reasoning
+    if (reward.is_upgraded) {
+      totalScore += 2
+      reasons.push('UG済み')
+    }
+
+    // Archetype fit
+    if (primary) {
+      const archFit = scoreCardForArchetype(card, primary.archetype)
+      totalScore += archFit * 2
+      if (archFit > 0) {
+        reasons.push(`${primary.label} シナジー`)
+      }
+    }
+
+    // Role fit (fills missing roles)
+    const roleFit = evaluateRoleFit(card, deckAnalysis.missingRoles)
+    totalScore += roleFit.score
+    if (roleFit.roles.length > 0) {
+      reasons.push(`不足補完: ${roleFit.roles.join('+')}`)
     }
 
     // Deck size penalty
-    if (deckAnalysis.deckQuality === 'bloated' && archetypeFit === 0) {
-      reasoning += ' (デッキ肥大 → スキップ推奨)'
+    if (deckAnalysis.deckQuality === 'bloated' && totalScore <= 3) {
+      totalScore -= 5
+      reasons.push('デッキ肥大 → スキップ推奨')
     }
 
     return {
-      index: card.index,
-      name: card.name,
-      archetypeFit,
-      reasoning: reasoning || card.rarity,
+      index: reward.index,
+      name: reward.name,
+      archetypeFit: totalScore,
+      reasoning: reasons.length > 0 ? reasons.join(' | ') : reward.rarity,
     }
-  }).sort((a, b) => b.archetypeFit - a.archetypeFit)
+  })
+
+  evaluated.sort((a, b) => b.archetypeFit - a.archetypeFit)
+
+  // Add skip recommendation
+  const shouldSkip = deckAnalysis.deckQuality === 'bloated' && evaluated[0].archetypeFit <= 3
+  if (shouldSkip && evaluated.length > 0) {
+    evaluated[0].reasoning += ' [全体的にスキップを推奨]'
+  }
+
+  return evaluated
 }

@@ -10,7 +10,7 @@ import { analyzeTurn } from '../logic/combatAnalyzer'
 import { calculateKillLines } from '../logic/damageCalculator'
 import { analyzeCharacter } from '../logic/characterMechanics'
 import { adviseMap, adviseCardPick, adviseRest, adviseShop } from '../logic/advisorEngine'
-import { analyzeDeck } from '../logic/deckAnalyzer'
+import { analyzeDeck, adviseCardPickWithContext } from '../logic/deckAnalyzer'
 import { DeckStats } from './DeckStats'
 
 function isCombatState(stateType: string): boolean {
@@ -121,7 +121,14 @@ function MapSection({ state }: { state: GameState }) {
 
 function CardRewardSection({ state }: { state: GameState }) {
   const advice = adviseCardPick(state.card_rewards, state)
-  return <CardRewardView state={state} advice={advice} />
+  const deckInfo = analyzeDeck(state)
+  const contextAdvice = adviseCardPickWithContext(state, deckInfo)
+  return (
+    <>
+      <CardRewardView state={state} advice={advice} contextAdvice={contextAdvice} />
+      <DeckStats analysis={deckInfo} />
+    </>
+  )
 }
 
 function RestSection({ state }: { state: GameState }) {

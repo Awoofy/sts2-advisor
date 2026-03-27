@@ -1,12 +1,15 @@
 import type { GameState } from '../types/gameState'
 import type { CardPickAdvice, RestAdvice, ShopAdvice } from '../logic/advisorEngine'
+import type { ContextualCardAdvice } from '../logic/deckAnalyzer'
 
 export function CardRewardView({
   state,
   advice,
+  contextAdvice,
 }: {
   state: GameState
   advice: CardPickAdvice | null
+  contextAdvice?: ContextualCardAdvice[] | null
 }) {
   const cards = state.card_rewards
   if (!cards || cards.length === 0) return null
@@ -51,11 +54,29 @@ export function CardRewardView({
                 <span className="text-sm text-spire-gold">{card.cost} Energy</span>
               </div>
               <p className="text-xs text-spire-muted">{card.description}</p>
-              {adviceItem && (
-                <div className="text-xs text-spire-accent mt-1">
-                  {adviceItem.reasoning}
-                </div>
-              )}
+              {(() => {
+                const ctx = contextAdvice?.find((c) => c.index === card.index)
+                if (ctx) {
+                  return (
+                    <div className="text-xs mt-1 bg-spire-accent/10 text-spire-accent rounded px-2 py-1">
+                      {ctx.reasoning}
+                      {ctx.archetypeFit > 0 && (
+                        <span className="ml-1 text-spire-gold font-bold">
+                          (Score: {ctx.archetypeFit})
+                        </span>
+                      )}
+                    </div>
+                  )
+                }
+                if (adviceItem) {
+                  return (
+                    <div className="text-xs text-spire-accent mt-1">
+                      {adviceItem.reasoning}
+                    </div>
+                  )
+                }
+                return null
+              })()}
               {isRecommended && (
                 <span className="inline-block text-xs bg-spire-green/20 text-spire-green px-2 py-0.5 rounded mt-1">
                   Pick
