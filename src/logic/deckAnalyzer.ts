@@ -1,5 +1,6 @@
 import type { Card, GameState, CardReward } from '../types/gameState'
 import { analyzeCardEffects } from './damageCalculator'
+import { lookupCard, lookupCardByName } from '../data/cardLookup'
 
 // -- Archetype definitions --
 
@@ -361,19 +362,30 @@ export function adviseCardPickWithContext(
     let totalScore = 0
     const reasons: string[] = []
 
-    // Rarity bonus
-    if (reward.rarity === 'Rare') {
-      totalScore += 3
-      reasons.push('レア')
-    } else if (reward.rarity === 'Uncommon') {
-      totalScore += 1
+    // 1. Tier DB lookup (highest weight)
+    const cardInfo = lookupCard(reward.id) ?? lookupCardByName(reward.name)
+    if (cardInfo?.tier) {
+      const tierScore = cardInfo.tier.score * 3 // S=15, A=12, B=9, C=6, D=3
+      totalScore += tierScore
+      reasons.push(`${cardInfo.tier.tier}-tier`)
+    }
+
+    // 2. Rarity bonus (lower weight now that we have tier data)
+    if (!cardInfo?.tier) {
+      // Only use rarity as fallback when no tier data
+      if (reward.rarity === 'Rare') {
+        totalScore += 4
+        reasons.push('レア')
+      } else if (reward.rarity === 'Uncommon') {
+        totalScore += 2
+      }
     }
     if (reward.is_upgraded) {
       totalScore += 2
       reasons.push('UG済み')
     }
 
-    // Archetype fit
+    // 3. Archetype fit
     if (primary) {
       const archFit = scoreCardForArchetype(card, primary.archetype)
       totalScore += archFit * 2
@@ -382,17 +394,20 @@ export function adviseCardPickWithContext(
       }
     }
 
-    // Role fit (fills missing roles)
+    // 4. Role fit (fills missing roles)
     const roleFit = evaluateRoleFit(card, deckAnalysis.missingRoles)
     totalScore += roleFit.score
     if (roleFit.roles.length > 0) {
       reasons.push(`不足補完: ${roleFit.roles.join('+')}`)
     }
 
-    // Deck size penalty
-    if (deckAnalysis.deckQuality === 'bloated' && totalScore <= 3) {
-      totalScore -= 5
-      reasons.push('デッキ肥大 → スキップ推奨')
+    // 5. Deck size penalty
+    if (deckAnalysis.deckQuality === 'bloated') {
+      const tierScore = cardInfo?.tier?.score ?? 0
+      if (tierScore < 4) { // Only skip if not A or S tier
+        totalScore -= 5
+        reasons.push('デッキ肥大 → スキップ検討')
+      }
     }
 
     return {
@@ -405,9 +420,9 @@ export function adviseCardPickWithContext(
 
   evaluated.sort((a, b) => b.archetypeFit - a.archetypeFit)
 
-  // Add skip recommendation
-  const shouldSkip = deckAnalysis.deckQuality === 'bloated' && evaluated[0].archetypeFit <= 3
-  if (shouldSkip && evaluated.length > 0) {
+  // Skip recommendation: only if all cards score poorly
+  const allLowTier = evaluated.every((e) => e.archetypeFit <= 8)
+  if (deckAnalysis.deckQuality === 'bloated' && allLowTier) {
     evaluated[0].reasoning += ' [全体的にスキップを推奨]'
   }
 
