@@ -141,11 +141,11 @@ export function CombatAdvisor({
                 </span>
                 <span className="text-spire-text font-bold">{rec.cardName}</span>
                 {rec.target && (
-                  <span className="text-spire-muted text-xs">
+                  <span className="text-spire-gold text-xs font-bold">
                     → {rec.target}
                   </span>
                 )}
-                <span className="text-spire-muted text-xs ml-auto">
+                <span className="text-spire-muted text-xs ml-auto shrink-0">
                   {rec.reason}
                 </span>
               </div>

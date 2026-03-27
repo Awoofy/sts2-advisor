@@ -156,15 +156,40 @@ function generateRecommendations(
   const totalIncoming = threats.reduce((sum, t) => sum + t.totalIncomingDamage, 0)
   const anyAttacking = threats.some((t) => t.isAttacking)
 
+  // Helper: pick best target for a single-target attack card
+  function pickTarget(card: Card): { id: string; name: string } | undefined {
+    if (card.target_type === 'all' || card.target_type === 'Self' || card.target_type === 'none') {
+      return undefined
+    }
+    // Prefer: buffing enemies > lowest effective HP > first
+    const sorted = [...enemies].sort((a, b) => {
+      const aBuff = threats.find((t) => t.enemyId === a.combat_id)?.isBuffing ? 1 : 0
+      const bBuff = threats.find((t) => t.enemyId === b.combat_id)?.isBuffing ? 1 : 0
+      if (aBuff !== bBuff) return bBuff - aBuff
+      return (a.hp + a.block) - (b.hp + b.block)
+    })
+    return sorted[0] ? { id: sorted[0].combat_id, name: sorted[0].name } : undefined
+  }
+
+  // Helper: describe target for display
+  function targetName(card: Card, override?: { id: string; name: string }): string | undefined {
+    if (card.target_type === 'all') return '全体'
+    if (card.target_type === 'Self' || card.target_type === 'none') return undefined
+    const t = override ?? pickTarget(card)
+    return t?.name
+  }
+
   // Zero-cost cards first
   for (const card of hand) {
     if (card.cost === 0 && card.can_play) {
+      const target = pickTarget(card)
       candidates.push({
         cardIndex: card.index,
         cardName: card.name,
         cost: 0,
         reason: '0コスト: 先に使う',
         priority: 100,
+        target: targetName(card, target),
       })
     }
   }
@@ -177,17 +202,17 @@ function generateRecommendations(
       return (bThreats?.totalIncomingDamage ?? 0) - (aThreats?.totalIncomingDamage ?? 0)
     })
 
-    const target = sorted[0]
-    for (const cardName of target.cardsNeeded) {
+    const killTarget = sorted[0]
+    for (const cardName of killTarget.cardsNeeded) {
       const card = hand.find((c) => c.name === cardName && c.can_play)
       if (card && !candidates.some((r) => r.cardIndex === card.index)) {
         candidates.push({
           cardIndex: card.index,
           cardName: card.name,
           cost: card.cost,
-          reason: `${target.enemyName} を倒せる!`,
+          reason: `${killTarget.enemyName} を倒せる!`,
           priority: 95,
-          target: target.enemyId,
+          target: killTarget.enemyName,
         })
       }
     }
@@ -229,23 +254,17 @@ function generateRecommendations(
   }
 
   // Remaining attacks
-  const primaryTarget = [...enemies].sort((a, b) => {
-    const aBuffing = threats.find((t) => t.enemyId === a.combat_id)?.isBuffing ? 1 : 0
-    const bBuffing = threats.find((t) => t.enemyId === b.combat_id)?.isBuffing ? 1 : 0
-    if (aBuffing !== bBuffing) return bBuffing - aBuffing
-    return (a.hp + a.block) - (b.hp + b.block)
-  })[0]
-
   for (const card of hand) {
     if (card.type === 'Attack' && card.can_play && card.cost > 0) {
       if (!candidates.some((r) => r.cardIndex === card.index)) {
+        const t = pickTarget(card)
         candidates.push({
           cardIndex: card.index,
           cardName: card.name,
           cost: card.cost,
-          reason: '攻撃: ダメージを与える',
+          reason: '攻撃',
           priority: 50,
-          target: primaryTarget?.combat_id,
+          target: targetName(card, t),
         })
       }
     }
@@ -255,12 +274,14 @@ function generateRecommendations(
   for (const card of hand) {
     if (card.type === 'Skill' && card.can_play && card.cost > 0) {
       if (!candidates.some((r) => r.cardIndex === card.index)) {
+        const t = pickTarget(card)
         candidates.push({
           cardIndex: card.index,
           cardName: card.name,
           cost: card.cost,
           reason: 'スキル',
           priority: 40,
+          target: targetName(card, t),
         })
       }
     }
