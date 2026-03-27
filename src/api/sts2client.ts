@@ -113,17 +113,117 @@ interface RawRun {
   ascension: number
 }
 
+interface RawCardRewardCard {
+  index: number
+  id: string
+  name: string
+  type: string
+  cost: string | number
+  star_cost: number | null
+  description: string
+  rarity: string
+  is_upgraded: boolean
+  keywords: RawKeyword[]
+}
+
+interface RawCardReward {
+  cards: RawCardRewardCard[]
+  can_skip: boolean
+}
+
+interface RawCombatReward {
+  index: number
+  type: string
+  label?: string
+  gold?: number
+}
+
+interface RawCombatRewards {
+  rewards: RawCombatReward[]
+}
+
+interface RawMapNextOption {
+  index: number
+  col: number
+  row: number
+  type: string
+}
+
+interface RawMapData {
+  current_position?: { col: number; row: number; type: string }
+  next_options?: RawMapNextOption[]
+  nodes?: unknown[]
+  boss?: unknown
+}
+
+interface RawRestOption {
+  index: number
+  label: string
+  description: string
+}
+
+interface RawRestData {
+  options: RawRestOption[]
+}
+
+interface RawShopItem {
+  index: number
+  category: string
+  cost: number
+  is_stocked: boolean
+  can_afford: boolean
+  on_sale: boolean
+  id?: string
+  name?: string
+  description?: string
+}
+
+interface RawShopData {
+  items: RawShopItem[]
+}
+
+interface RawEventOption {
+  index: number
+  label: string
+  description?: string
+  is_locked: boolean
+  is_chosen: boolean
+}
+
+interface RawEventData {
+  event_id?: string
+  event_name?: string
+  is_ancient?: boolean
+  in_dialogue?: boolean
+  body?: string
+  options?: RawEventOption[]
+}
+
+interface RawPlayerInfo {
+  character?: string
+  hp?: number
+  max_hp?: number
+  block?: number
+  energy?: number
+  max_energy?: number
+  gold?: number
+  stars?: number
+  relics?: RawRelic[]
+  potions?: RawPotion[]
+  status?: RawStatusEffect[]
+}
+
 interface RawApiResponse {
   state_type: string
   battle?: RawBattle
   run?: RawRun
-  // Non-combat states may have different structures
-  map?: unknown
-  shop?: unknown
-  event?: unknown
-  rest?: unknown
-  rewards?: unknown
-  card_rewards?: unknown[]
+  card_reward?: RawCardReward
+  combat_rewards?: RawCombatRewards
+  map?: RawMapData
+  rest?: RawRestData
+  shop?: RawShopData
+  event?: RawEventData
+  player?: RawPlayerInfo
   [key: string]: unknown
 }
 
@@ -267,12 +367,27 @@ function transformResponse(raw: RawApiResponse): GameState {
     state.ascension = raw.run.ascension
   }
 
+  // Player info (may appear at top level in non-combat states)
+  if (raw.player) {
+    const p = raw.player
+    state.character = p.character
+    state.hp = p.hp
+    state.max_hp = p.max_hp
+    state.block = p.block
+    state.energy = p.energy
+    state.max_energy = p.max_energy
+    state.gold = p.gold
+    state.stars = p.stars
+    if (p.relics) state.relics = p.relics.map(transformRelic)
+    if (p.potions) state.potions = p.potions.map(transformPotion)
+    if (p.status) state.status = p.status.map(transformStatusEffect)
+  }
+
   // Battle state
   if (raw.battle) {
     const b = raw.battle
     const p = b.player
 
-    // Player stats
     state.character = p.character
     state.hp = p.hp
     state.max_hp = p.max_hp
@@ -282,26 +397,69 @@ function transformResponse(raw: RawApiResponse): GameState {
     state.stars = p.stars
     state.gold = p.gold
 
-    // Hand & piles
     state.hand = p.hand.map(transformCard)
     state.draw_pile_count = p.draw_pile_count
     state.discard_pile_count = p.discard_pile_count
     state.exhaust_pile_count = p.exhaust_pile_count
 
-    // Player status
     state.status = p.status.map(transformStatusEffect)
-
-    // Relics & Potions
     state.relics = p.relics.map(transformRelic)
     state.potions = p.potions.map(transformPotion)
 
-    // Combat info
     state.round = b.round
     state.turn = b.turn
     state.is_play_phase = b.is_play_phase
-
-    // Enemies
     state.enemies = b.enemies.map(transformEnemy)
+  }
+
+  // Card reward
+  if (raw.card_reward) {
+    state.card_rewards = raw.card_reward.cards.map((c) => ({
+      index: c.index,
+      id: c.id,
+      name: c.name,
+      type: c.type,
+      cost: parseIntFromString(c.cost),
+      description: c.description,
+      rarity: c.rarity,
+      is_upgraded: c.is_upgraded,
+    }))
+  }
+
+  // Combat rewards
+  if (raw.combat_rewards) {
+    state.combat_rewards = raw.combat_rewards.rewards.map((r) => ({
+      index: r.index,
+      type: r.type,
+      label: r.label ?? r.type,
+      gold: r.gold,
+    }))
+  }
+
+  // Map
+  if (raw.map) {
+    state.current_position = raw.map.current_position
+    state.next_options = raw.map.next_options
+  }
+
+  // Rest site
+  if (raw.rest) {
+    state.rest_options = raw.rest.options
+  }
+
+  // Shop
+  if (raw.shop) {
+    state.shop_items = raw.shop.items
+  }
+
+  // Event
+  if (raw.event) {
+    state.event_id = raw.event.event_id
+    state.event_name = raw.event.event_name
+    state.is_ancient = raw.event.is_ancient
+    state.in_dialogue = raw.event.in_dialogue
+    state.body = raw.event.body
+    state.event_options = raw.event.options
   }
 
   return state
